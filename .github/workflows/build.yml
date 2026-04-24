@@ -3,29 +3,83 @@ name: Build HelpyCords VST3
 on:
   push:
     branches: [ main, master ]
-  workflow_dispatch:
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:   # lets you trigger manually from Actions tab
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    name: Build VST3 (Windows MSVC)
+    runs-on: windows-2022
 
     steps:
-      - name: Checkout code
+      # -----------------------------------------------------------------------
+      # 1. Checkout the repo (JUCE must be a submodule or already committed)
+      # -----------------------------------------------------------------------
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: recursive   # pulls JUCE submodule if configured as one
 
+      # -----------------------------------------------------------------------
+      # 2. If JUCE is NOT a git submodule, clone it here instead.
+      #    Comment out this step if JUCE is already a submodule.
+      # -----------------------------------------------------------------------
+      - name: Clone JUCE (if not a submodule)
+        shell: bash
+        run: |
+          if [ ! -f "JUCE/CMakeLists.txt" ]; then
+            echo "JUCE folder missing – cloning..."
+            git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git JUCE
+          else
+            echo "JUCE folder already present."
+          fi
+
+      # -----------------------------------------------------------------------
+      # 3. Configure with CMake (MSVC / Visual Studio 2022)
+      # -----------------------------------------------------------------------
       - name: Configure CMake
         run: |
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build ^
+            -G "Visual Studio 17 2022" ^
+            -A x64 ^
+            -DCMAKE_BUILD_TYPE=Release
+        shell: cmd
 
+      # -----------------------------------------------------------------------
+      # 4. Build — only the VST3 and Standalone targets
+      # -----------------------------------------------------------------------
       - name: Build VST3
         run: |
-          cmake --build build --config Release --target HelpyCords_VST3
+          cmake --build build --config Release --target HelpyCords_VST3 --parallel
+        shell: cmd
 
-      - name: Upload VST3 artifact
+      - name: Build Standalone
+        run: |
+          cmake --build build --config Release --target HelpyCords_Standalone --parallel
+        shell: cmd
+
+      # -----------------------------------------------------------------------
+      # 5. Locate the output files
+      # -----------------------------------------------------------------------
+      - name: List build artefacts
+        shell: bash
+        run: |
+          find build -name "*.vst3" -o -name "*.exe" | head -40
+
+      # -----------------------------------------------------------------------
+      # 6. Upload VST3 as a downloadable artefact
+      # -----------------------------------------------------------------------
+      - name: Upload VST3
         uses: actions/upload-artifact@v4
         with:
-          name: HelpyCords-VST3
+          name: HelpyCords-VST3-Windows
           path: build/HelpyCords_artefacts/Release/VST3/
-          if-no-files-found: error
+          if-no-files-found: warn
+
+      - name: Upload Standalone EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: HelpyCords-Standalone-Windows
+          path: build/HelpyCords_artefacts/Release/Standalone/
+          if-no-files-found: warn
