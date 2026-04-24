@@ -19,5 +19,10 @@
                 }
             }
         }
+    },
+    "editor.formatOnSave": false,
+    "files.associations": {
+        "*.h": "cpp",
+        "*.cpp": "cpp"
     }
 }
