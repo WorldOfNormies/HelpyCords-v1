@@ -6,12 +6,12 @@ HelpyCordsEditor::HelpyCordsEditor(HelpyCordsPlugin& p)
     setSize(1200, 750);
 
     titleLabel.setText("HelpyCords", juce::dontSendNotification);
-    titleLabel.setFont(juce::Font(32.0f, juce::Font::bold));
+    titleLabel.setFont(juce::Font(juce::FontOptions().withHeight(32.0f).withStyle("Bold")));
     titleLabel.setColour(juce::Label::textColourId, juce::Colour(0xFF0066FF));
     addAndMakeVisible(titleLabel);
 
     authorLabel.setText("-by Agustin", juce::dontSendNotification);
-    authorLabel.setFont(juce::Font(10.0f));
+    authorLabel.setFont(juce::Font(juce::FontOptions().withHeight(10.0f)));
     authorLabel.setColour(juce::Label::textColourId, juce::Colour(0xFF0066FF).withAlpha(0.7f));
     addAndMakeVisible(authorLabel);
 
@@ -23,7 +23,7 @@ HelpyCordsEditor::HelpyCordsEditor(HelpyCordsPlugin& p)
     addAndMakeVisible(instrumentBox);
 
     instrumentLabel.setText("Instrument:", juce::dontSendNotification);
-    instrumentLabel.setFont(juce::Font(14.0f, juce::Font::bold));
+    instrumentLabel.setFont(juce::Font(juce::FontOptions().withHeight(14.0f).withStyle("Bold")));
     instrumentLabel.setColour(juce::Label::textColourId, juce::Colour(0xFF333333));
     addAndMakeVisible(instrumentLabel);
 
@@ -33,7 +33,7 @@ HelpyCordsEditor::HelpyCordsEditor(HelpyCordsPlugin& p)
     addAndMakeVisible(chordTypeBox);
 
     chordTypeLabel.setText("Chord:", juce::dontSendNotification);
-    chordTypeLabel.setFont(juce::Font(12.0f, juce::Font::bold));
+    chordTypeLabel.setFont(juce::Font(juce::FontOptions().withHeight(12.0f).withStyle("Bold")));
     chordTypeLabel.setColour(juce::Label::textColourId, juce::Colour(0xFF333333));
     addAndMakeVisible(chordTypeLabel);
 
@@ -43,7 +43,7 @@ HelpyCordsEditor::HelpyCordsEditor(HelpyCordsPlugin& p)
     addAndMakeVisible(keyBox);
 
     keyLabel.setText("Key:", juce::dontSendNotification);
-    keyLabel.setFont(juce::Font(12.0f, juce::Font::bold));
+    keyLabel.setFont(juce::Font(juce::FontOptions().withHeight(12.0f).withStyle("Bold")));
     keyLabel.setColour(juce::Label::textColourId, juce::Colour(0xFF333333));
     addAndMakeVisible(keyLabel);
 
@@ -64,7 +64,7 @@ HelpyCordsEditor::HelpyCordsEditor(HelpyCordsPlugin& p)
         s.addListener(this);
         addAndMakeVisible(s);
         l.setText(name, juce::dontSendNotification);
-        l.setFont(juce::Font(11.0f, juce::Font::bold));
+        l.setFont(juce::Font(juce::FontOptions().withHeight(11.0f).withStyle("Bold")));
         l.setColour(juce::Label::textColourId, juce::Colour(0xFF333333));
         addAndMakeVisible(l);
     };
@@ -201,21 +201,18 @@ void HelpyCordsEditor::PianoKeyboard::paint(juce::Graphics& g)
     const int whiteKeyWidth = static_cast<int>(50 * zoom);
     const int blackKeyWidth = static_cast<int>(30 * zoom);
     const int keyHeight     = getHeight() - 40;
-    const int startNote     = 36; // C2
+    const int startNote     = 36;
 
-    // How many white keys can we fit?
     const int totalWhiteKeys = (getWidth() - startX) / whiteKeyWidth;
 
-    // --- Pass 1: White keys ---
-    // white key index -> midi note mapping
-    // White keys in an octave: C=0, D=2, E=4, F=5, G=7, A=9, B=11
     static const int whiteKeyNotes[] = { 0, 2, 4, 5, 7, 9, 11 };
 
+    // Pass 1: white keys
     for (int wk = 0; wk < totalWhiteKeys; ++wk)
     {
-        int octave      = wk / 7;
-        int noteInOct   = whiteKeyNotes[wk % 7];
-        int midiNote    = startNote + octave * 12 + noteInOct;
+        int octave    = wk / 7;
+        int noteInOct = whiteKeyNotes[wk % 7];
+        int midiNote  = startNote + octave * 12 + noteInOct;
         if (midiNote >= 128) break;
 
         int xPos = startX + wk * whiteKeyWidth;
@@ -231,19 +228,12 @@ void HelpyCordsEditor::PianoKeyboard::paint(juce::Graphics& g)
 
         static const char* noteNames[] = {"C","","D","","E","F","","G","","A","","B"};
         g.setColour(juce::Colour(0xFF333333));
-        g.setFont(juce::Font(10.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions().withHeight(10.0f).withStyle("Bold")));
         g.drawText(noteNames[noteInOct], xPos, getHeight() - 25, whiteKeyWidth - 2, 20,
                    juce::Justification::centred, true);
     }
 
-    // --- Pass 2: Black keys (drawn on top) ---
-    // Black keys in octave: C#=1, D#=3, F#=6, G#=8, A#=10
-    // Their position offset from the start of the octave in white-key units:
-    // C# is after C (white key 0), offset = 0.7
-    // D# is after D (white key 1), offset = 1.7
-    // F# is after F (white key 3), offset = 3.7
-    // G# is after G (white key 4), offset = 4.7
-    // A# is after A (white key 5), offset = 5.7
+    // Pass 2: black keys
     static const float blackKeyOffsets[] = { 0.7f, 1.7f, 3.7f, 4.7f, 5.7f };
     static const int   blackKeyNotes[]   = { 1,    3,    6,    8,    10   };
 
@@ -275,13 +265,11 @@ void HelpyCordsEditor::PianoKeyboard::mouseDown(const juce::MouseEvent& e)
     const int startX        = 20;
     const int whiteKeyWidth = static_cast<int>(50 * zoom);
     const int adjustedX     = e.x - startX;
-
     if (adjustedX < 0) return;
 
-    // FIX: Map white-key index back to MIDI note correctly
     static const int whiteKeyNotes[] = { 0, 2, 4, 5, 7, 9, 11 };
-    int wkIndex  = adjustedX / whiteKeyWidth;
-    int octave   = wkIndex / 7;
+    int wkIndex   = adjustedX / whiteKeyWidth;
+    int octave    = wkIndex / 7;
     int noteInOct = whiteKeyNotes[wkIndex % 7];
     int midiNote  = 36 + octave * 12 + noteInOct;
 
@@ -298,7 +286,6 @@ void HelpyCordsEditor::PianoKeyboard::mouseUp(const juce::MouseEvent& e)
     const int startX        = 20;
     const int whiteKeyWidth = static_cast<int>(50 * zoom);
     const int adjustedX     = e.x - startX;
-
     if (adjustedX < 0) return;
 
     static const int whiteKeyNotes[] = { 0, 2, 4, 5, 7, 9, 11 };
