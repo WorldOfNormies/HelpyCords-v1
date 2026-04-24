@@ -3,7 +3,7 @@ name: Build HelpyCords VST3
 on:
   push:
     branches: [ main, master ]
-  workflow_dispatch:  # allows you to trigger manually from GitHub website
+  workflow_dispatch:
 
 jobs:
   build-windows:
@@ -13,7 +13,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: recursive   # this pulls JUCE automatically
+          submodules: recursive
 
       - name: Configure CMake
         run: |
