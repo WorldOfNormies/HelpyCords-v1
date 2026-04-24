@@ -3,76 +3,105 @@
 #include <JuceHeader.h>
 #include "HelpyCordsPlugin.h"
 
-class HelpyCordsEditor : public juce::AudioProcessorEditor,
-                         public juce::Slider::Listener,
-                         public juce::ComboBox::Listener,
-                         public juce::Button::Listener
+//==============================================================================
+// PianoKeyboard component
+//==============================================================================
+class PianoKeyboardComponent : public juce::Component,
+                               public juce::Timer
 {
 public:
-    HelpyCordsEditor(HelpyCordsPlugin& p);
-    ~HelpyCordsEditor() override;
+    explicit PianoKeyboardComponent (HelpyCordsPlugin& p);
+    ~PianoKeyboardComponent() override;
 
-    void paint(juce::Graphics& g) override;
-    void resized() override;
+    void paint (juce::Graphics& g) override;
+    void mouseDown  (const juce::MouseEvent& e) override;
+    void mouseUp    (const juce::MouseEvent& e) override;
+    void mouseDrag  (const juce::MouseEvent& e) override;
+    void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override;
+    void timerCallback() override;
 
-    void sliderValueChanged(juce::Slider* slider) override;
-    void comboBoxChanged(juce::ComboBox* comboBox) override;
-    void buttonClicked(juce::Button* button) override;
+    void setZoom (float z);
+    float getZoom() const { return zoom; }
 
 private:
     HelpyCordsPlugin& processor;
 
-    juce::Label titleLabel;
-    juce::Label authorLabel;
+    float zoom         = 1.0f;
+    int   scrollOffset = 0;        // pixel scroll (horizontal)
+    int   startNote    = 36;       // C2
 
-    juce::ComboBox instrumentBox;
-    juce::Label    instrumentLabel;
+    // Which notes are currently held by mouse
+    bool mouseHeld[128] = {};
+    int  lastDragNote   = -1;
 
-    juce::ComboBox chordTypeBox;
-    juce::ComboBox keyBox;
-    juce::Label    chordTypeLabel;
-    juce::Label    keyLabel;
+    // Cached layout (recalculated in paint)
+    int whiteKeyW = 44;
+    int blackKeyW = 26;
+    int keyAreaX  = 0;
 
-    juce::Slider sustainSlider;
-    juce::Slider decaySlider;
-    juce::Slider reverbSlider;
-    juce::Slider filterSlider;
-    juce::Slider volumeSlider;
-    juce::Slider zoomSlider;
+    int noteAtMouse (int x, int y) const;
+    void sendNote (int midiNote, bool on);
+    bool isBlackKey (int noteInOct) const;
 
-    juce::Label sustainLabel;
-    juce::Label decayLabel;
-    juce::Label reverbLabel;
-    juce::Label filterLabel;
-    juce::Label volumeLabel;
-    juce::Label zoomLabel;
+    static const int WHITE_KEY_NOTES[7];
+    static const int BLACK_KEY_NOTES[5];
+    static const float BLACK_KEY_OFFSETS[5];
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoKeyboardComponent)
+};
+
+//==============================================================================
+// Main editor
+//==============================================================================
+class HelpyCordsEditor : public juce::AudioProcessorEditor,
+                         public juce::Slider::Listener,
+                         public juce::ComboBox::Listener,
+                         public juce::Button::Listener,
+                         public juce::Timer
+{
+public:
+    explicit HelpyCordsEditor (HelpyCordsPlugin& p);
+    ~HelpyCordsEditor() override;
+
+    void paint   (juce::Graphics& g) override;
+    void resized () override;
+
+    void sliderValueChanged (juce::Slider*   s) override;
+    void comboBoxChanged    (juce::ComboBox* c) override;
+    void buttonClicked      (juce::Button*   b) override;
+    void timerCallback      ()                  override;
+
+private:
+    HelpyCordsPlugin& processor;
+
+    //--- Header ---------------------------------------------------------------
+    juce::Label  titleLabel, authorLabel;
+
+    //--- Controls panel -------------------------------------------------------
+    juce::Label    instrumentLabel, chordLabel, keyLabel;
+    juce::ComboBox instrumentBox, chordBox, keyBox;
 
     juce::ToggleButton autoCorrectButton;
+    juce::Label        autoCorrectLabel;
 
-    // FIX: PianoKeyboard inherits mouseWheelMove from juce::Component directly.
-    //      No extra "MouseWheelListener" base class needed (it doesn't exist in JUCE).
-    class PianoKeyboard : public juce::Component
+    //--- Sliders --------------------------------------------------------------
+    struct SliderRow
     {
-    public:
-        explicit PianoKeyboard(HelpyCordsPlugin& p);
-        void paint(juce::Graphics& g) override;
-        void mouseDown(const juce::MouseEvent& e) override;
-        void mouseUp(const juce::MouseEvent& e) override;
-        void mouseWheelMove(const juce::MouseEvent& e,
-                            const juce::MouseWheelDetails& wheel) override;
-
-        void setZoom(float z) { zoom = z; repaint(); }
-
-    private:
-        HelpyCordsPlugin&     processor;
-        std::array<bool, 128> keyPressed;
-        float zoom         = 1.0f;
-        int   scrollOffset = 0;
-
-        void sendMidiNote(int midiNote, bool noteOn);
+        juce::Slider slider;
+        juce::Label  label;
     };
+    SliderRow sustainRow, decayRow, reverbRow, filterRow, volumeRow, zoomRow;
 
-    std::unique_ptr<PianoKeyboard> keyboard;
+    void setupSlider (SliderRow& row, const juce::String& name,
+                      double lo, double hi, double step, double val);
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(HelpyCordsEditor)
+    //--- Chord info display ---------------------------------------------------
+    juce::Label chordInfoLabel;
+
+    //--- Piano keyboard -------------------------------------------------------
+    std::unique_ptr<PianoKeyboardComponent> piano;
+
+    void updateChordInfoLabel();
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HelpyCordsEditor)
 };
