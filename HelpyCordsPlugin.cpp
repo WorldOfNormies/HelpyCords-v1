@@ -1,288 +1,322 @@
 #include "HelpyCordsPlugin.h"
 #include "HelpyCordsEditor.h"
 
+//==============================================================================
 HelpyCordsPlugin::HelpyCordsPlugin()
-    : AudioProcessor(BusesProperties()
-        .withOutput("Output", juce::AudioChannelSet::stereo(), true))
+    : AudioProcessor (BusesProperties()
+          .withOutput ("Output", juce::AudioChannelSet::stereo(), true))
 {
-    addParameter(instrumentParam = new juce::AudioParameterChoice(
-        "instrument", "Instrument",
-        juce::StringArray("Grand Piano", "Electric Piano", "Acoustic Guitar", "Electric Guitar",
-                         "Classical Guitar", "Violin", "Cello", "Trumpet", "Saxophone", "Flute", "Bass", "Harpsichord"), 0));
+    // Build StringArrays for choice parameters
+    juce::StringArray instrumentNames, chordNames, keyNames;
+    for (int i = 0; i < NUM_INSTRUMENTS;   ++i) instrumentNames.add (INSTRUMENT_PRESETS[i].name);
+    for (int i = 0; i < NUM_CHORD_TYPES;   ++i) chordNames.add (CHORD_TYPE_NAMES[i]);
+    for (int i = 0; i < 12;                ++i) keyNames.add (KEY_NAMES[i]);
 
-    addParameter(chordTypeParam = new juce::AudioParameterChoice(
-        "chordType", "Chord Type",
-        juce::StringArray("Major", "Minor", "Dominant 7", "Major 7", "Minor 7", "Sus2", "Sus4"), 0));
+    addParameter (instrumentParam  = new juce::AudioParameterChoice ("instrument",   "Instrument",  instrumentNames, 0));
+    addParameter (chordTypeParam   = new juce::AudioParameterChoice ("chordType",    "Chord Type",  chordNames, 0));
+    addParameter (keyParam         = new juce::AudioParameterChoice ("key",          "Key",         keyNames, 0));
+    addParameter (autoCorrectParam = new juce::AudioParameterBool   ("autoCorrect",  "Auto Correct", true));
+    addParameter (sustainParam     = new juce::AudioParameterFloat  ("sustain",      "Sustain",     0.0f,  2.0f,  1.0f));
+    addParameter (decayParam       = new juce::AudioParameterFloat  ("decay",        "Decay",       0.01f, 2.0f,  0.5f));
+    addParameter (reverbParam      = new juce::AudioParameterFloat  ("reverb",       "Reverb",      0.0f,  1.0f,  0.3f));
+    addParameter (volumeParam      = new juce::AudioParameterFloat  ("volume",       "Volume",      -30.0f, 0.0f, -6.0f));
+    addParameter (filterParam      = new juce::AudioParameterFloat  ("filter",       "Filter",      0.0f,  1.0f,  1.0f));
 
-    addParameter(keyParam = new juce::AudioParameterChoice(
-        "key", "Key",
-        juce::StringArray("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"), 0));
-
-    addParameter(autoCorrectParam = new juce::AudioParameterBool(
-        "autoCorrect", "Auto Correct", true));
-
-    addParameter(sustainParam = new juce::AudioParameterFloat(
-        "sustain", "Sustain", 0.0f, 2.0f, 1.0f));
-
-    addParameter(decayParam = new juce::AudioParameterFloat(
-        "decay", "Decay", 0.01f, 2.0f, 0.5f));
-
-    addParameter(reverbParam = new juce::AudioParameterFloat(
-        "reverb", "Reverb", 0.0f, 1.0f, 0.3f));
-
-    addParameter(volumeParam = new juce::AudioParameterFloat(
-        "volume", "Volume", -30.0f, 0.0f, -6.0f));
-
-    addParameter(filterParam = new juce::AudioParameterFloat(
-        "filter", "Filter Cutoff", 0.0f, 1.0f, 1.0f));
-
-    addParameter(keyboardZoomParam = new juce::AudioParameterFloat(
-        "keyboardZoom", "Keyboard Zoom", 0.5f, 2.0f, 1.0f));
-
-    updateChordMapping();
-    updateInstrumentPreset();
+    reverbBufferL.fill (0.0f);
+    reverbBufferR.fill (0.0f);
 }
 
-HelpyCordsPlugin::~HelpyCordsPlugin()
+HelpyCordsPlugin::~HelpyCordsPlugin() {}
+
+//==============================================================================
+void HelpyCordsPlugin::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
+    sampleRate_ = sampleRate;
+    blockSize_  = samplesPerBlock;
+    midiCollector.reset (sampleRate);
+    reverbBufferL.fill (0.0f);
+    reverbBufferR.fill (0.0f);
+    reverbWritePos = 0;
+
+    for (auto& v : voices)
+        v = VoiceData{};
 }
 
-void HelpyCordsPlugin::prepareToPlay(double sr, int block)
-{
-    sampleRate      = sr;
-    samplesPerBlock = block;
+void HelpyCordsPlugin::releaseResources() {}
 
-    // FIX: MidiMessageCollector must be reset with the sample rate before use.
-    midiCollector.reset(sr);
+bool HelpyCordsPlugin::isBusesLayoutSupported (const BusesLayout& layouts) const
+{
+    auto out = layouts.getMainOutputChannelSet();
+    return out == juce::AudioChannelSet::mono() || out == juce::AudioChannelSet::stereo();
 }
 
-void HelpyCordsPlugin::releaseResources()
+//==============================================================================
+float HelpyCordsPlugin::noteToFrequency (int midiNote) const
 {
+    return 440.0f * std::pow (2.0f, (midiNote - 69) / 12.0f);
 }
 
-bool HelpyCordsPlugin::isBusesLayoutSupported(const BusesLayout& layouts) const
+int HelpyCordsPlugin::getCorrectedNote (int inputNote) const
 {
-    if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
-        && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
-        return false;
-    return true;
-}
+    if (! autoCorrectParam->get()) return inputNote;
 
-float HelpyCordsPlugin::noteToFrequency(int midiNote)
-{
-    return 440.0f * std::pow(2.0f, (midiNote - 69) / 12.0f);
-}
-
-int HelpyCordsPlugin::getCorrectedNote(int inputNote, int chordType, int key)
-{
-    juce::ignoreUnused(chordType);
-
-    if (!autoCorrectParam->get())
-        return inputNote;
-
-    int noteInOctave = inputNote % 12;
-    int octave       = inputNote / 12;
+    int noteInOct = inputNote % 12;
+    int octave    = inputNote / 12;
+    const int* intervals = CHORD_INTERVALS[currentChordType];
 
     int bestNote    = inputNote;
     int minDistance = 12;
 
-    for (int i = 0; i < 12; i++)
+    for (int i = 0; i < 4; ++i)
     {
-        bool isInChord = false;
-        for (int interval : currentChordIntervals)
-        {
-            if ((key + interval) % 12 == i)
-            {
-                isInChord = true;
-                break;
-            }
-        }
+        int chordNote = (currentKey + intervals[i]) % 12;
+        int distance  = std::abs (noteInOct - chordNote);
+        if (distance > 6) distance = 12 - distance;
 
-        if (isInChord)
+        if (distance < minDistance)
         {
-            int distance = std::abs(noteInOctave - i);
-            if (distance > 6) distance = 12 - distance;
-
-            if (distance < minDistance)
-            {
-                minDistance = distance;
-                bestNote    = octave * 12 + i;
-            }
+            minDistance = distance;
+            bestNote    = octave * 12 + chordNote;
+            // Keep corrected note in a reasonable octave range
+            if (bestNote < 21)  bestNote += 12;
+            if (bestNote > 108) bestNote -= 12;
         }
     }
-
     return bestNote;
 }
 
-void HelpyCordsPlugin::updateChordMapping()
+bool HelpyCordsPlugin::isNoteInChord (int midiNote) const
 {
-    int chordType = chordTypeParam->getIndex();
-    currentKey    = keyParam->getIndex();
-
-    switch (chordType)
-    {
-        case 0: currentChordIntervals = {0, 4, 7, 12}; break;
-        case 1: currentChordIntervals = {0, 3, 7, 12}; break;
-        case 2: currentChordIntervals = {0, 4, 7, 10}; break;
-        case 3: currentChordIntervals = {0, 4, 7, 11}; break;
-        case 4: currentChordIntervals = {0, 3, 7, 10}; break;
-        case 5: currentChordIntervals = {0, 2, 7, 12}; break;
-        case 6: currentChordIntervals = {0, 5, 7, 12}; break;
-        default: currentChordIntervals = {0, 4, 7, 12};
-    }
+    int noteInOct    = midiNote % 12;
+    const int* intervals = CHORD_INTERVALS[currentChordType];
+    for (int i = 0; i < 4; ++i)
+        if ((currentKey + intervals[i]) % 12 == noteInOct)
+            return true;
+    return false;
 }
 
-void HelpyCordsPlugin::updateInstrumentPreset()
+void HelpyCordsPlugin::updateChordAndKey()
 {
-    int instIndex = instrumentParam->getIndex();
-    if (instIndex >= 0 && instIndex < static_cast<int>(Instrument::COUNT))
-        currentInstrument = INSTRUMENT_PRESETS[instIndex];
+    currentChordType = chordTypeParam->getIndex();
+    currentKey       = keyParam->getIndex();
+    int instIdx      = instrumentParam->getIndex();
+    if (instIdx >= 0 && instIdx < NUM_INSTRUMENTS)
+        currentInstrument = INSTRUMENT_PRESETS[instIdx];
+
+    // Update chord-note lookup table
+    for (int i = 0; i < 128; ++i)
+        noteInCurrentChord[i] = isNoteInChord (i);
 }
 
-float HelpyCordsPlugin::generateWaveform(float phase, float sineAmp, float triangleAmp, float sawtoothAmp)
+//==============================================================================
+float HelpyCordsPlugin::generateWaveform (float phase, const InstrumentPreset& inst) const
 {
-    float sine     = std::sin(phase * 6.28318f);
-    float triangle = (phase < 0.5f) ? (4.0f * phase - 1.0f) : (4.0f * (1.0f - phase) - 1.0f);
+    const float twoPi = 6.28318530718f;
+    float sine     = std::sin (phase * twoPi);
+    float triangle = (phase < 0.5f) ? (4.0f * phase - 1.0f) : (3.0f - 4.0f * phase);
     float sawtooth = 2.0f * phase - 1.0f;
-    return sineAmp * sine + triangleAmp * triangle + sawtoothAmp * sawtooth;
+
+    float base = inst.waveformMix[0] * sine
+               + inst.waveformMix[1] * triangle
+               + inst.waveformMix[2] * sawtooth;
+
+    // Harmonic richness: add 2nd + 3rd overtone
+    if (inst.harmonicRichness > 0.0f)
+    {
+        float h2 = std::sin (phase * twoPi * 2.0f) * 0.5f;
+        float h3 = std::sin (phase * twoPi * 3.0f) * 0.25f;
+        base += inst.harmonicRichness * (h2 + h3) * 0.3f;
+    }
+
+    return base;
 }
 
-float HelpyCordsPlugin::calculateEnvelope(float phase, float attack, float decay, float sustain, float release)
+float HelpyCordsPlugin::calculateEnvelope (const VoiceData& v, const InstrumentPreset& inst) const
 {
-    float totalTime       = attack + decay + sustain + release;
-    float normalizedPhase = std::fmod(phase, totalTime);
+    float t       = v.envelopePhase;
+    float attack  = inst.attackTime;
+    float decay   = inst.decayTime;
+    float sustain = inst.sustainLevel;
 
-    if (normalizedPhase < attack)
-        return normalizedPhase / (attack + 0.001f);
-    else if (normalizedPhase < attack + decay)
-        return 1.0f - ((normalizedPhase - attack) / decay) * (1.0f - sustain);
-    else if (normalizedPhase < attack + decay + sustain)
+    if (t < attack)
+        return t / (attack + 1e-6f);
+
+    t -= attack;
+    if (t < decay)
+        return 1.0f - (t / (decay + 1e-6f)) * (1.0f - sustain);
+
+    if (! v.releasing)
         return sustain;
-    else
-        return sustain * (1.0f - ((normalizedPhase - attack - decay - sustain) / (release + 0.001f)));
+
+    // Release
+    float release = inst.releaseTime;
+    return sustain * std::max (0.0f, 1.0f - v.releasePhase / (release + 1e-6f));
 }
 
-float HelpyCordsPlugin::simpleFilter(float input, float& state, float cutoff)
+// Simple 2-pole low-pass (state-variable style)
+float HelpyCordsPlugin::applyFilter (float input, float& state1, float& state2, float cutoffNorm) const
 {
-    state = state + cutoff * (input - state);
-    return state;
+    float f = 0.02f + cutoffNorm * 0.45f;   // 0.02 – 0.47
+    state1 += f * (input   - state1);
+    state2 += f * (state1  - state2);
+    return state2;
 }
 
-void HelpyCordsPlugin::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
+//==============================================================================
+void HelpyCordsPlugin::processBlock (juce::AudioBuffer<float>& buffer,
+                                     juce::MidiBuffer& midiMessages)
 {
-    auto totalNumOutputChannels = getTotalNumOutputChannels();
-    for (auto i = getTotalNumInputChannels(); i < totalNumOutputChannels; ++i)
-        buffer.clear(i, 0, buffer.getNumSamples());
+    const int numSamples    = buffer.getNumSamples();
+    const int numOutCh      = getTotalNumOutputChannels();
 
-    // Pull any MIDI messages injected by the editor's piano keyboard
+    for (int ch = getTotalNumInputChannels(); ch < numOutCh; ++ch)
+        buffer.clear (ch, 0, numSamples);
+
+    // Collect MIDI from the editor's piano keyboard
     juce::MidiBuffer editorMidi;
-    midiCollector.removeNextBlockOfMessages(editorMidi, buffer.getNumSamples());
+    midiCollector.removeNextBlockOfMessages (editorMidi, numSamples);
     for (const auto meta : editorMidi)
-        midiMessages.addEvent(meta.getMessage(), meta.samplePosition);
+        midiMessages.addEvent (meta.getMessage(), meta.samplePosition);
 
-    updateChordMapping();
-    updateInstrumentPreset();
+    updateChordAndKey();
 
+    // Process MIDI events
     for (const auto meta : midiMessages)
     {
-        auto msg = meta.getMessage();
+        const auto msg = meta.getMessage();
 
         if (msg.isNoteOn())
         {
-            for (auto& voice : voices)
+            // Find a free voice (or steal the quietest)
+            int   target   = -1;
+            float minAmp   = 1e9f;
+
+            for (int i = 0; i < NUM_VOICES; ++i)
             {
-                if (!voice.isActive)
-                {
-                    voice.isActive      = true;
-                    voice.midiNote      = msg.getNoteNumber();
-                    voice.correctedNote = getCorrectedNote(msg.getNoteNumber(), chordTypeParam->getIndex(), currentKey);
-                    voice.frequency     = noteToFrequency(voice.correctedNote);
-                    voice.velocity      = msg.getVelocity() / 127.0f;
-                    voice.envelopePhase = 0.0f;
-                    voice.filterState   = 0.0f;
-                    break;
-                }
+                if (! voices[i].isActive) { target = i; break; }
+                float amp = calculateEnvelope (voices[i], currentInstrument);
+                if (amp < minAmp) { minAmp = amp; target = i; }
+            }
+
+            if (target >= 0)
+            {
+                auto& v       = voices[target];
+                v.isActive    = true;
+                v.releasing   = false;
+                v.releasePhase= 0.0f;
+                v.midiNote    = msg.getNoteNumber();
+                v.correctedNote = getCorrectedNote (v.midiNote);
+                v.frequency   = noteToFrequency (v.correctedNote);
+                v.velocity    = msg.getVelocity() / 127.0f;
+                v.phase       = 0.0f;
+                v.envelopePhase = 0.0f;
+                v.filterState = 0.0f;
+                v.filterState2= 0.0f;
             }
         }
         else if (msg.isNoteOff())
         {
-            for (auto& voice : voices)
-            {
-                if (voice.midiNote == msg.getNoteNumber())
-                    voice.isActive = false;
-            }
+            for (auto& v : voices)
+                if (v.isActive && v.midiNote == msg.getNoteNumber() && ! v.releasing)
+                {
+                    v.releasing    = true;
+                    v.releasePhase = 0.0f;
+                }
+        }
+        else if (msg.isAllNotesOff() || msg.isAllSoundOff())
+        {
+            for (auto& v : voices) v.isActive = false;
         }
     }
 
-    auto* channelL = buffer.getWritePointer(0);
-    auto* channelR = buffer.getNumChannels() > 1 ? buffer.getWritePointer(1) : channelL;
+    // Render
+    float* outL = buffer.getWritePointer (0);
+    float* outR = numOutCh > 1 ? buffer.getWritePointer (1) : outL;
 
-    float masterVolume = std::pow(10.0f, volumeParam->get() / 20.0f);
-    float filterCutoff = 0.01f + filterParam->get() * 0.15f;
+    const float masterGain  = std::pow (10.0f, volumeParam->get() / 20.0f);
+    const float filterCut   = filterParam->get();
+    const float reverbWet   = reverbParam->get();
+    const float dt          = 1.0f / static_cast<float> (sampleRate_);
 
-    for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+    for (int s = 0; s < numSamples; ++s)
     {
-        float outL = 0.0f, outR = 0.0f;
+        float mixL = 0.0f, mixR = 0.0f;
 
-        for (auto& voice : voices)
+        for (auto& v : voices)
         {
-            if (voice.isActive)
-            {
-                voice.envelopePhase += (1.0f / static_cast<float>(sampleRate));
+            if (! v.isActive) continue;
 
-                float envelope = calculateEnvelope(
-                    voice.envelopePhase,
-                    currentInstrument.attackTime,
-                    currentInstrument.decayTime,
-                    currentInstrument.sustainLevel,
-                    currentInstrument.releaseTime);
+            v.envelopePhase += dt;
+            if (v.releasing) v.releasePhase += dt;
 
-                voice.phase += voice.frequency / static_cast<float>(sampleRate);
-                if (voice.phase >= 1.0f)
-                    voice.phase -= 1.0f;
+            float env = calculateEnvelope (v, currentInstrument);
+            if (env < 1e-5f && v.releasing) { v.isActive = false; continue; }
 
-                float waveform = generateWaveform(
-                    voice.phase,
-                    currentInstrument.waveformMix[0],
-                    currentInstrument.waveformMix[1],
-                    currentInstrument.waveformMix[2]);
+            v.phase += v.frequency * dt;
+            if (v.phase >= 1.0f) v.phase -= 1.0f;
 
-                float filtered    = simpleFilter(waveform, voice.filterState, filterCutoff);
-                float sampleValue = filtered * envelope * voice.velocity * 0.1f;
+            float wave     = generateWaveform (v.phase, currentInstrument);
+            float filtered = applyFilter (wave, v.filterState, v.filterState2, filterCut);
+            float out      = filtered * env * v.velocity * 0.08f;
 
-                outL += sampleValue;
-                outR += sampleValue * (1.0f - reverbParam->get() * 0.3f);
-            }
+            mixL += out;
+            mixR += out;
         }
 
-        channelL[sample] = outL * masterVolume;
-        if (buffer.getNumChannels() > 1)
-            channelR[sample] = outR * masterVolume;
+        // Simple reverb (Schroeder-ish comb with single tap)
+        const int d1 = 4801, d2 = 3001;
+        int r1L = (reverbWritePos + REVERB_SIZE - d1) & (REVERB_SIZE - 1);
+        int r2R = (reverbWritePos + REVERB_SIZE - d2) & (REVERB_SIZE - 1);
+
+        float revL = reverbBufferL[r1L] * 0.55f;
+        float revR = reverbBufferR[r2R] * 0.55f;
+
+        reverbBufferL[reverbWritePos] = mixL + revL * 0.4f;
+        reverbBufferR[reverbWritePos] = mixR + revR * 0.4f;
+        reverbWritePos = (reverbWritePos + 1) & (REVERB_SIZE - 1);
+
+        outL[s] = (mixL + revL * reverbWet) * masterGain;
+        outR[s] = (mixR + revR * reverbWet) * masterGain;
     }
 }
 
+//==============================================================================
 juce::AudioProcessorEditor* HelpyCordsPlugin::createEditor()
 {
-    return new HelpyCordsEditor(*this);
+    return new HelpyCordsEditor (*this);
 }
 
-const juce::String HelpyCordsPlugin::getName() const
+void HelpyCordsPlugin::getStateInformation (juce::MemoryBlock& destData)
 {
-    return "HelpyCords";
+    juce::MemoryOutputStream stream (destData, true);
+    stream.writeInt (instrumentParam->getIndex());
+    stream.writeInt (chordTypeParam->getIndex());
+    stream.writeInt (keyParam->getIndex());
+    stream.writeBool (autoCorrectParam->get());
+    stream.writeFloat (sustainParam->get());
+    stream.writeFloat (decayParam->get());
+    stream.writeFloat (reverbParam->get());
+    stream.writeFloat (volumeParam->get());
+    stream.writeFloat (filterParam->get());
 }
 
-void HelpyCordsPlugin::getStateInformation(juce::MemoryBlock& /*destData*/)
+void HelpyCordsPlugin::setStateInformation (const void* data, int sizeInBytes)
 {
+    juce::MemoryInputStream stream (data, static_cast<size_t>(sizeInBytes), false);
+    if (stream.getDataSize() < 4) return;
+    instrumentParam->setValueNotifyingHost  (instrumentParam->convertTo0to1 (stream.readInt()));
+    chordTypeParam->setValueNotifyingHost   (chordTypeParam->convertTo0to1  (stream.readInt()));
+    keyParam->setValueNotifyingHost         (keyParam->convertTo0to1        (stream.readInt()));
+    autoCorrectParam->setValueNotifyingHost (stream.readBool() ? 1.0f : 0.0f);
+    sustainParam->setValueNotifyingHost     (sustainParam->convertTo0to1    (stream.readFloat()));
+    decayParam->setValueNotifyingHost       (decayParam->convertTo0to1      (stream.readFloat()));
+    reverbParam->setValueNotifyingHost      (reverbParam->convertTo0to1     (stream.readFloat()));
+    volumeParam->setValueNotifyingHost      (volumeParam->convertTo0to1     (stream.readFloat()));
+    filterParam->setValueNotifyingHost      (filterParam->convertTo0to1     (stream.readFloat()));
 }
 
-void HelpyCordsPlugin::setStateInformation(const void* /*data*/, int /*sizeInBytes*/)
-{
-}
-
-// ==========================================================
-// 🔥 THIS IS THE FIX YOU WERE MISSING
-// ==========================================================
-
+//==============================================================================
+// Plugin entry point
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new HelpyCordsPlugin();
