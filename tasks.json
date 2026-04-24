@@ -21,18 +21,56 @@
             "problemMatcher": []
         },
         {
-            "label": "CMake Build",
+            "label": "Build VST3",
             "type": "shell",
             "command": "cmake",
             "args": [
                 "--build", "${workspaceFolder}/build",
                 "--config", "Release",
-                "--target", "HelpyCords_VST3"
+                "--target", "HelpyCords_VST3",
+                "--parallel"
             ],
             "group": {
                 "kind": "build",
                 "isDefault": true
             },
+            "dependsOn": "CMake Configure",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "Build Standalone",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build", "${workspaceFolder}/build",
+                "--config", "Release",
+                "--target", "HelpyCords_Standalone",
+                "--parallel"
+            ],
+            "group": "build",
+            "dependsOn": "CMake Configure",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "Build All",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build", "${workspaceFolder}/build",
+                "--config", "Release",
+                "--parallel"
+            ],
+            "group": "build",
             "dependsOn": "CMake Configure",
             "presentation": {
                 "echo": true,
