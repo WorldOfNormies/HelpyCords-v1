@@ -56,7 +56,6 @@ target_link_libraries(HelpyCords
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
-        juce::juce_recommended_video_link_flags
 )
 
 # FIX: Suppress the VST2/VST3 parameter conflict error entirely.
