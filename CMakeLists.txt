@@ -4,7 +4,7 @@ project(HelpyCords VERSION 2.0.0)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Add JUCE as a subdirectory (must be in the same folder as this file)
+# Add JUCE as a subdirectory (JUCE folder must be in the same folder as this file)
 add_subdirectory(JUCE)
 
 # Create the plugin target
@@ -20,8 +20,12 @@ juce_add_plugin(HelpyCords
     NEEDS_MIDI_OUTPUT TRUE
     NEEDS_WEBVIEW OFF
     NEEDS_WEB_BROWSER OFF
-    COPY_PLUGIN_AFTER_BUILD TRUE
+    COPY_PLUGIN_AFTER_BUILD FALSE
 )
+
+# FIX: This generates JuceHeader.h - without this line the build fails with
+#      "Cannot open include file: 'JuceHeader.h'"
+juce_generate_juce_header(HelpyCords)
 
 # Add source files
 target_sources(HelpyCords PRIVATE
@@ -51,7 +55,6 @@ target_link_libraries(HelpyCords
         juce::juce_recommended_warning_flags
 )
 
-# MSVC only - do NOT use /WX (warnings as errors) since JUCE headers have some
 if(MSVC)
     target_compile_options(HelpyCords PRIVATE /W3 /permissive-)
 else()
