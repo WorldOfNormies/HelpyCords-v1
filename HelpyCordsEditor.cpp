@@ -1,319 +1,551 @@
 #include "HelpyCordsEditor.h"
 
-HelpyCordsEditor::HelpyCordsEditor(HelpyCordsPlugin& p)
-    : AudioProcessorEditor(&p), processor(p)
+//=============================================================================
+// Colour palette
+//=============================================================================
+namespace Colors
 {
-    setSize(1200, 750);
-
-    titleLabel.setText("HelpyCords", juce::dontSendNotification);
-    titleLabel.setFont(juce::Font(juce::FontOptions().withHeight(32.0f).withStyle("Bold")));
-    titleLabel.setColour(juce::Label::textColourId, juce::Colour(0xFF0066FF));
-    addAndMakeVisible(titleLabel);
-
-    authorLabel.setText("-by Agustin", juce::dontSendNotification);
-    authorLabel.setFont(juce::Font(juce::FontOptions().withHeight(10.0f)));
-    authorLabel.setColour(juce::Label::textColourId, juce::Colour(0xFF0066FF).withAlpha(0.7f));
-    addAndMakeVisible(authorLabel);
-
-    instrumentBox.addItemList(juce::StringArray(
-        "Grand Piano", "Electric Piano", "Acoustic Guitar", "Electric Guitar",
-        "Classical Guitar", "Violin", "Cello", "Trumpet", "Saxophone", "Flute", "Bass", "Harpsichord"), 1);
-    instrumentBox.setSelectedItemIndex(0);
-    instrumentBox.addListener(this);
-    addAndMakeVisible(instrumentBox);
-
-    instrumentLabel.setText("Instrument:", juce::dontSendNotification);
-    instrumentLabel.setFont(juce::Font(juce::FontOptions().withHeight(14.0f).withStyle("Bold")));
-    instrumentLabel.setColour(juce::Label::textColourId, juce::Colour(0xFF333333));
-    addAndMakeVisible(instrumentLabel);
-
-    chordTypeBox.addItemList(juce::StringArray("Major", "Minor", "Dominant 7", "Major 7", "Minor 7", "Sus2", "Sus4"), 1);
-    chordTypeBox.setSelectedItemIndex(0);
-    chordTypeBox.addListener(this);
-    addAndMakeVisible(chordTypeBox);
-
-    chordTypeLabel.setText("Chord:", juce::dontSendNotification);
-    chordTypeLabel.setFont(juce::Font(juce::FontOptions().withHeight(12.0f).withStyle("Bold")));
-    chordTypeLabel.setColour(juce::Label::textColourId, juce::Colour(0xFF333333));
-    addAndMakeVisible(chordTypeLabel);
-
-    keyBox.addItemList(juce::StringArray("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"), 1);
-    keyBox.setSelectedItemIndex(0);
-    keyBox.addListener(this);
-    addAndMakeVisible(keyBox);
-
-    keyLabel.setText("Key:", juce::dontSendNotification);
-    keyLabel.setFont(juce::Font(juce::FontOptions().withHeight(12.0f).withStyle("Bold")));
-    keyLabel.setColour(juce::Label::textColourId, juce::Colour(0xFF333333));
-    addAndMakeVisible(keyLabel);
-
-    autoCorrectButton.setButtonText("Auto Correct");
-    autoCorrectButton.setToggleState(true, juce::dontSendNotification);
-    autoCorrectButton.setColour(juce::ToggleButton::tickColourId, juce::Colour(0xFF0066FF));
-    autoCorrectButton.addListener(this);
-    addAndMakeVisible(autoCorrectButton);
-
-    auto setupSlider = [&](juce::Slider& s, juce::Label& l, const juce::String& name,
-                           double lo, double hi, double step, double val)
-    {
-        s.setSliderStyle(juce::Slider::LinearHorizontal);
-        s.setRange(lo, hi, step);
-        s.setValue(val);
-        s.setColour(juce::Slider::thumbColourId, juce::Colour(0xFF0066FF));
-        s.setColour(juce::Slider::trackColourId, juce::Colour(0xFFE6B8FF).withAlpha(0.5f));
-        s.addListener(this);
-        addAndMakeVisible(s);
-        l.setText(name, juce::dontSendNotification);
-        l.setFont(juce::Font(juce::FontOptions().withHeight(11.0f).withStyle("Bold")));
-        l.setColour(juce::Label::textColourId, juce::Colour(0xFF333333));
-        addAndMakeVisible(l);
-    };
-
-    setupSlider(sustainSlider, sustainLabel, "Sustain", 0.0,  2.0,  0.05, 1.0);
-    setupSlider(decaySlider,   decayLabel,   "Decay",   0.01, 2.0,  0.05, 0.5);
-    setupSlider(reverbSlider,  reverbLabel,  "Reverb",  0.0,  1.0,  0.05, 0.3);
-    setupSlider(filterSlider,  filterLabel,  "Filter",  0.0,  1.0,  0.05, 1.0);
-    setupSlider(volumeSlider,  volumeLabel,  "Volume",  -30.0, 0.0, 1.0, -6.0);
-    setupSlider(zoomSlider,    zoomLabel,    "Zoom",    0.5,  2.0,  0.1,  1.0);
-
-    keyboard = std::make_unique<PianoKeyboard>(processor);
-    addAndMakeVisible(keyboard.get());
+    const juce::Colour bg         { 0xFF0F0F1A };
+    const juce::Colour panel      { 0xFF16162A };
+    const juce::Colour panelBorder{ 0xFF2A2A50 };
+    const juce::Colour accent     { 0xFF4D88FF };
+    const juce::Colour accent2    { 0xFF8855FF };
+    const juce::Colour text       { 0xFFD0D8FF };
+    const juce::Colour textDim    { 0xFF6670A0 };
+    const juce::Colour keyWhite   { 0xFFEEF0FF };
+    const juce::Colour keyBlack   { 0xFF181830 };
+    const juce::Colour keyPressed { 0xFF4D88FF };
+    const juce::Colour keyCorrect { 0xFF33CC88 };  // green — note is in chord
+    const juce::Colour keyWrong   { 0xFFFF4455 };  // red   — pressed but wrong
 }
 
-HelpyCordsEditor::~HelpyCordsEditor()
+//=============================================================================
+// PianoKeyboardComponent
+//=============================================================================
+const int   PianoKeyboardComponent::WHITE_KEY_NOTES[7]  = { 0, 2, 4, 5, 7, 9, 11 };
+const int   PianoKeyboardComponent::BLACK_KEY_NOTES[5]  = { 1, 3, 6, 8, 10 };
+const float PianoKeyboardComponent::BLACK_KEY_OFFSETS[5]= { 0.65f, 1.65f, 3.65f, 4.65f, 5.65f };
+
+PianoKeyboardComponent::PianoKeyboardComponent (HelpyCordsPlugin& p)
+    : processor (p)
 {
+    std::fill (std::begin (mouseHeld), std::end (mouseHeld), false);
+    startTimerHz (30);
 }
 
-void HelpyCordsEditor::paint(juce::Graphics& g)
+PianoKeyboardComponent::~PianoKeyboardComponent()
 {
-    g.fillAll(juce::Colour(0xFFFFF5F8));
-
-    g.setColour(juce::Colour(0xFFFFE8F0).withAlpha(0.8f));
-    g.fillRect(0, 0, getWidth(), 80);
-
-    g.setColour(juce::Colour(0xFF0066FF).withAlpha(0.2f));
-    g.drawLine(0, 80, (float)getWidth(), 80, 1.0f);
-
-    g.setColour(juce::Colour(0xFFFFFFFF).withAlpha(0.9f));
-    g.fillRoundedRectangle(10, 100, (float)(getWidth() - 20), 180, 8);
-    g.setColour(juce::Colour(0xFF0066FF).withAlpha(0.15f));
-    g.drawRoundedRectangle(10, 100, (float)(getWidth() - 20), 180, 8, 1.0f);
+    stopTimer();
+    // Release any held notes
+    for (int i = 0; i < 128; ++i)
+        if (mouseHeld[i]) sendNote (i, false);
 }
 
-void HelpyCordsEditor::resized()
+bool PianoKeyboardComponent::isBlackKey (int noteInOct) const
 {
-    auto bounds = getLocalBounds();
-
-    titleLabel.setBounds(20, 15, 300, 40);
-    authorLabel.setBounds(320, 45, 150, 20);
-
-    int controlY = 110;
-    int margin   = 15;
-
-    instrumentLabel.setBounds(margin, controlY, 80, 20);
-    instrumentBox.setBounds(margin, controlY + 20, 150, 30);
-
-    chordTypeLabel.setBounds(margin + 170, controlY, 80, 20);
-    chordTypeBox.setBounds(margin + 170, controlY + 20, 130, 30);
-
-    keyLabel.setBounds(margin + 320, controlY, 50, 20);
-    keyBox.setBounds(margin + 320, controlY + 20, 90, 30);
-
-    autoCorrectButton.setBounds(margin + 430, controlY + 20, 150, 30);
-
-    int sliderY   = controlY + 70;
-    int sliderW   = 140;
-    int sliderGap = 10;
-
-    sustainLabel.setBounds(margin, sliderY, 80, 15);
-    sustainSlider.setBounds(margin, sliderY + 15, sliderW, 20);
-
-    decayLabel.setBounds(margin + (sliderW + sliderGap) + 40, sliderY, 80, 15);
-    decaySlider.setBounds(margin + (sliderW + sliderGap) + 40, sliderY + 15, sliderW, 20);
-
-    reverbLabel.setBounds(margin + (sliderW + sliderGap) * 2 + 40, sliderY, 80, 15);
-    reverbSlider.setBounds(margin + (sliderW + sliderGap) * 2 + 40, sliderY + 15, sliderW, 20);
-
-    filterLabel.setBounds(margin + (sliderW + sliderGap) * 3 + 40, sliderY, 80, 15);
-    filterSlider.setBounds(margin + (sliderW + sliderGap) * 3 + 40, sliderY + 15, sliderW, 20);
-
-    volumeLabel.setBounds(margin + (sliderW + sliderGap) * 4 + 40, sliderY, 80, 15);
-    volumeSlider.setBounds(margin + (sliderW + sliderGap) * 4 + 40, sliderY + 15, sliderW, 20);
-
-    zoomLabel.setBounds(margin + (sliderW + sliderGap) * 5 + 40, sliderY, 80, 15);
-    zoomSlider.setBounds(margin + (sliderW + sliderGap) * 5 + 40, sliderY + 15, sliderW, 20);
-
-    auto keyboardBounds = bounds.removeFromBottom(bounds.getHeight() - 300);
-    keyboard->setBounds(keyboardBounds);
+    for (int b : BLACK_KEY_NOTES)
+        if (b == noteInOct) return true;
+    return false;
 }
 
-void HelpyCordsEditor::sliderValueChanged(juce::Slider* slider)
+void PianoKeyboardComponent::setZoom (float z)
 {
-    if (slider == &sustainSlider)
-        *processor.sustainParam = (float)sustainSlider.getValue();
-    else if (slider == &decaySlider)
-        *processor.decayParam = (float)decaySlider.getValue();
-    else if (slider == &reverbSlider)
-        *processor.reverbParam = (float)reverbSlider.getValue();
-    else if (slider == &filterSlider)
-        *processor.filterParam = (float)filterSlider.getValue();
-    else if (slider == &volumeSlider)
-        *processor.volumeParam = (float)volumeSlider.getValue();
-    else if (slider == &zoomSlider)
-        keyboard->setZoom((float)zoomSlider.getValue());
+    zoom = juce::jlimit (0.5f, 2.5f, z);
+    repaint();
 }
 
-void HelpyCordsEditor::comboBoxChanged(juce::ComboBox* comboBox)
+void PianoKeyboardComponent::timerCallback()
 {
-    if (comboBox == &instrumentBox)
-        processor.instrumentParam->setValueNotifyingHost(
-            (float)instrumentBox.getSelectedItemIndex() / 11.0f);
-    else if (comboBox == &chordTypeBox)
-        processor.chordTypeParam->setValueNotifyingHost(
-            (float)chordTypeBox.getSelectedItemIndex() / 6.0f);
-    else if (comboBox == &keyBox)
-        processor.keyParam->setValueNotifyingHost(
-            (float)keyBox.getSelectedItemIndex() / 11.0f);
+    repaint();
 }
 
-void HelpyCordsEditor::buttonClicked(juce::Button* button)
+//------------------------------------------------------------------------------
+void PianoKeyboardComponent::paint (juce::Graphics& g)
 {
-    if (button == &autoCorrectButton)
-        *processor.autoCorrectParam = autoCorrectButton.getToggleState();
-}
+    const int W = getWidth(), H = getHeight();
+    g.fillAll (Colors::bg);
 
-// ===========================================================================
-// PianoKeyboard
-// ===========================================================================
+    whiteKeyW = static_cast<int> (44 * zoom);
+    blackKeyW = static_cast<int> (26 * zoom);
+    keyAreaX  = -scrollOffset;
 
-HelpyCordsEditor::PianoKeyboard::PianoKeyboard(HelpyCordsPlugin& p)
-    : processor(p)
-{
-    keyPressed.fill(false);
-    setWantsKeyboardFocus(true);
-}
+    const int whiteH = H - 2;
+    const int blackH = static_cast<int> (whiteH * 0.62f);
 
-void HelpyCordsEditor::PianoKeyboard::paint(juce::Graphics& g)
-{
-    g.fillAll(juce::Colour(0xFF1A1A2E).withAlpha(0.95f));
+    // How many keys visible?
+    const int totalWhiteKeys = 52;  // full 88-key piano has 52 white keys (approx)
 
-    const int startX        = 20;
-    const int whiteKeyWidth = static_cast<int>(50 * zoom);
-    const int blackKeyWidth = static_cast<int>(30 * zoom);
-    const int keyHeight     = getHeight() - 40;
-    const int startNote     = 36;
-
-    const int totalWhiteKeys = (getWidth() - startX) / whiteKeyWidth;
-
-    static const int whiteKeyNotes[] = { 0, 2, 4, 5, 7, 9, 11 };
-
-    // Pass 1: white keys
+    // ---- Pass 1: White keys ----
+    int wx = 0;
     for (int wk = 0; wk < totalWhiteKeys; ++wk)
     {
         int octave    = wk / 7;
-        int noteInOct = whiteKeyNotes[wk % 7];
-        int midiNote  = startNote + octave * 12 + noteInOct;
-        if (midiNote >= 128) break;
+        int noteInOct = WHITE_KEY_NOTES[wk % 7];
+        int midi      = 21 + octave * 12 + noteInOct; // A0 = 21
+        if (midi > 108) break;
 
-        int xPos = startX + wk * whiteKeyWidth;
+        int xPos = keyAreaX + wx;
+        wx += whiteKeyW;
 
-        juce::Colour keyColour = keyPressed[midiNote]
-                                 ? juce::Colour(0xFF00FFFF)
-                                 : juce::Colour(0xFFFFFFFF);
-        g.setColour(keyColour);
-        g.fillRoundedRectangle((float)xPos, 15.0f, (float)(whiteKeyWidth - 2), (float)keyHeight, 4.0f);
+        if (xPos + whiteKeyW < 0 || xPos > W) continue;
 
-        g.setColour(juce::Colour(0xFF0066FF).withAlpha(0.3f));
-        g.drawRoundedRectangle((float)xPos, 15.0f, (float)(whiteKeyWidth - 2), (float)keyHeight, 4.0f, 1.5f);
+        juce::Colour col = Colors::keyWhite;
+        if (mouseHeld[midi])
+        {
+            bool inChord = processor.noteInCurrentChord[midi];
+            col = inChord ? Colors::keyCorrect : Colors::keyWrong;
+        }
+        else if (processor.noteInCurrentChord[midi])
+        {
+            col = Colors::keyWhite.interpolatedWith (Colors::keyCorrect, 0.25f);
+        }
 
-        static const char* noteNames[] = {"C","","D","","E","F","","G","","A","","B"};
-        g.setColour(juce::Colour(0xFF333333));
-        g.setFont(juce::Font(juce::FontOptions().withHeight(10.0f).withStyle("Bold")));
-        g.drawText(noteNames[noteInOct], xPos, getHeight() - 25, whiteKeyWidth - 2, 20,
-                   juce::Justification::centred, true);
+        g.setColour (col);
+        g.fillRoundedRectangle ((float)xPos + 1, 1.0f,
+                                 (float)(whiteKeyW - 2), (float)(whiteH - 2), 3.0f);
+
+        g.setColour (Colors::panelBorder);
+        g.drawRoundedRectangle ((float)xPos + 1, 1.0f,
+                                 (float)(whiteKeyW - 2), (float)(whiteH - 2), 3.0f, 1.0f);
+
+        // Note name at C notes
+        if (noteInOct == 0)
+        {
+            g.setColour (Colors::textDim);
+            g.setFont (juce::Font (10.0f));
+            g.drawText ("C" + juce::String (octave + 1),
+                         xPos + 1, whiteH - 16, whiteKeyW - 2, 14,
+                         juce::Justification::centred);
+        }
     }
 
-    // Pass 2: black keys
-    static const float blackKeyOffsets[] = { 0.7f, 1.7f, 3.7f, 4.7f, 5.7f };
-    static const int   blackKeyNotes[]   = { 1,    3,    6,    8,    10   };
-
+    // ---- Pass 2: Black keys ----
+    wx = 0;
     for (int wk = 0; wk < totalWhiteKeys; wk += 7)
     {
         int octave = wk / 7;
         for (int b = 0; b < 5; ++b)
         {
-            int midiNote = startNote + octave * 12 + blackKeyNotes[b];
-            if (midiNote >= 128) break;
+            int midi = 21 + octave * 12 + BLACK_KEY_NOTES[b];
+            if (midi > 108) break;
 
-            int bx = startX + static_cast<int>((wk + blackKeyOffsets[b]) * whiteKeyWidth) - blackKeyWidth / 2;
-            if (bx + blackKeyWidth > getWidth()) break;
+            int bx = keyAreaX + wx + static_cast<int> (BLACK_KEY_OFFSETS[b] * whiteKeyW) - blackKeyW / 2;
+            if (bx + blackKeyW < 0 || bx > W) continue;
 
-            juce::Colour keyColour = keyPressed[midiNote]
-                                     ? juce::Colour(0xFF00FFFF)
-                                     : juce::Colour(0xFF0066FF);
-            g.setColour(keyColour);
-            g.fillRoundedRectangle((float)bx, 15.0f, (float)(blackKeyWidth - 2), (float)(keyHeight - 40), 3.0f);
+            juce::Colour col = Colors::keyBlack;
+            if (mouseHeld[midi])
+            {
+                bool inChord = processor.noteInCurrentChord[midi];
+                col = inChord ? Colors::keyCorrect.darker (0.2f) : Colors::keyWrong.darker (0.2f);
+            }
+            else if (processor.noteInCurrentChord[midi])
+            {
+                col = Colors::accent2.darker (0.4f);
+            }
 
-            g.setColour(juce::Colour(0xFF000000).withAlpha(0.3f));
-            g.drawRoundedRectangle((float)bx, 15.0f, (float)(blackKeyWidth - 2), (float)(keyHeight - 40), 3.0f, 1.0f);
+            g.setColour (col);
+            g.fillRoundedRectangle ((float)bx, 1.0f,
+                                     (float)(blackKeyW - 1), (float)(blackH - 1), 2.0f);
+
+            g.setColour (Colors::accent.withAlpha (0.3f));
+            g.drawRoundedRectangle ((float)bx, 1.0f,
+                                     (float)(blackKeyW - 1), (float)(blackH - 1), 2.0f, 1.0f);
+        }
+        wx += whiteKeyW * 7;
+    }
+
+    // Legend strip at top
+    g.setColour (Colors::panel.withAlpha (0.85f));
+    g.fillRect (0, 0, W, 14);
+    g.setFont (juce::Font (9.0f));
+    g.setColour (Colors::keyCorrect);
+    g.drawText ("■ In chord", 4, 1, 70, 12, juce::Justification::left);
+    g.setColour (Colors::keyWrong);
+    g.drawText ("■ Wrong note", 76, 1, 80, 12, juce::Justification::left);
+    g.setColour (Colors::accent);
+    g.drawText ("■ Pressed", 160, 1, 70, 12, juce::Justification::left);
+}
+
+//------------------------------------------------------------------------------
+int PianoKeyboardComponent::noteAtMouse (int x, int y) const
+{
+    const int W     = getWidth();
+    const int H     = getHeight();
+    const int blackH= static_cast<int> ((H - 2) * 0.62f);
+
+    // Check black keys first (drawn on top)
+    int wx = 0;
+    for (int wk = 0; wk < 52; wk += 7)
+    {
+        int octave = wk / 7;
+        for (int b = 0; b < 5; ++b)
+        {
+            int midi = 21 + octave * 12 + BLACK_KEY_NOTES[b];
+            if (midi > 108) break;
+            int bx = keyAreaX + wx + static_cast<int> (BLACK_KEY_OFFSETS[b] * whiteKeyW) - blackKeyW / 2;
+            if (x >= bx && x < bx + blackKeyW && y < blackH)
+                return midi;
+        }
+        wx += whiteKeyW * 7;
+    }
+
+    // White keys
+    wx = 0;
+    for (int wk = 0; wk < 52; ++wk)
+    {
+        int octave    = wk / 7;
+        int noteInOct = WHITE_KEY_NOTES[wk % 7];
+        int midi      = 21 + octave * 12 + noteInOct;
+        if (midi > 108) break;
+        int xPos = keyAreaX + wx;
+        if (x >= xPos && x < xPos + whiteKeyW)
+            return midi;
+        wx += whiteKeyW;
+    }
+    return -1;
+}
+
+void PianoKeyboardComponent::sendNote (int midiNote, bool on)
+{
+    if (midiNote < 0 || midiNote > 127) return;
+    juce::MidiMessage msg = on
+        ? juce::MidiMessage::noteOn  (1, midiNote, (juce::uint8)100)
+        : juce::MidiMessage::noteOff (1, midiNote);
+    processor.getMidiMessageCollector().handleIncomingMidiMessage (nullptr, msg);
+}
+
+void PianoKeyboardComponent::mouseDown (const juce::MouseEvent& e)
+{
+    int note = noteAtMouse (e.x, e.y);
+    if (note >= 0 && ! mouseHeld[note])
+    {
+        mouseHeld[note] = true;
+        lastDragNote    = note;
+        sendNote (note, true);
+        repaint();
+    }
+}
+
+void PianoKeyboardComponent::mouseUp (const juce::MouseEvent& e)
+{
+    juce::ignoreUnused (e);
+    for (int i = 0; i < 128; ++i)
+    {
+        if (mouseHeld[i])
+        {
+            mouseHeld[i] = false;
+            sendNote (i, false);
         }
     }
-}
-
-void HelpyCordsEditor::PianoKeyboard::mouseDown(const juce::MouseEvent& e)
-{
-    const int startX        = 20;
-    const int whiteKeyWidth = static_cast<int>(50 * zoom);
-    const int adjustedX     = e.x - startX;
-    if (adjustedX < 0) return;
-
-    static const int whiteKeyNotes[] = { 0, 2, 4, 5, 7, 9, 11 };
-    int wkIndex   = adjustedX / whiteKeyWidth;
-    int octave    = wkIndex / 7;
-    int noteInOct = whiteKeyNotes[wkIndex % 7];
-    int midiNote  = 36 + octave * 12 + noteInOct;
-
-    if (midiNote >= 0 && midiNote < 128)
-    {
-        keyPressed[midiNote] = true;
-        sendMidiNote(midiNote, true);
-        repaint();
-    }
-}
-
-void HelpyCordsEditor::PianoKeyboard::mouseUp(const juce::MouseEvent& e)
-{
-    const int startX        = 20;
-    const int whiteKeyWidth = static_cast<int>(50 * zoom);
-    const int adjustedX     = e.x - startX;
-    if (adjustedX < 0) return;
-
-    static const int whiteKeyNotes[] = { 0, 2, 4, 5, 7, 9, 11 };
-    int wkIndex   = adjustedX / whiteKeyWidth;
-    int octave    = wkIndex / 7;
-    int noteInOct = whiteKeyNotes[wkIndex % 7];
-    int midiNote  = 36 + octave * 12 + noteInOct;
-
-    if (midiNote >= 0 && midiNote < 128)
-    {
-        keyPressed[midiNote] = false;
-        sendMidiNote(midiNote, false);
-        repaint();
-    }
-}
-
-void HelpyCordsEditor::PianoKeyboard::mouseWheelMove(const juce::MouseEvent& /*e*/,
-                                                      const juce::MouseWheelDetails& wheel)
-{
-    scrollOffset -= static_cast<int>(wheel.deltaY * 10);
+    lastDragNote = -1;
     repaint();
 }
 
-void HelpyCordsEditor::PianoKeyboard::sendMidiNote(int midiNote, bool noteOn)
+void PianoKeyboardComponent::mouseDrag (const juce::MouseEvent& e)
 {
-    juce::MidiMessage msg = noteOn
-        ? juce::MidiMessage::noteOn(1, midiNote, static_cast<juce::uint8>(100))
-        : juce::MidiMessage::noteOff(1, midiNote);
+    int note = noteAtMouse (e.x, e.y);
+    if (note == lastDragNote) return;
 
-    processor.getMidiMessageCollector().handleIncomingMidiMessage(nullptr, msg);
+    if (lastDragNote >= 0 && mouseHeld[lastDragNote])
+    {
+        mouseHeld[lastDragNote] = false;
+        sendNote (lastDragNote, false);
+    }
+
+    if (note >= 0)
+    {
+        mouseHeld[note] = true;
+        sendNote (note, true);
+    }
+    lastDragNote = note;
+    repaint();
+}
+
+void PianoKeyboardComponent::mouseWheelMove (const juce::MouseEvent& /*e*/,
+                                              const juce::MouseWheelDetails& w)
+{
+    scrollOffset -= static_cast<int> (w.deltaX * 40);
+    scrollOffset  = juce::jlimit (0, static_cast<int> (52 * whiteKeyW - getWidth() + 20), scrollOffset);
+    repaint();
+}
+
+//=============================================================================
+// HelpyCordsEditor
+//=============================================================================
+HelpyCordsEditor::HelpyCordsEditor (HelpyCordsPlugin& p)
+    : AudioProcessorEditor (&p), processor (p)
+{
+    setSize (1100, 700);
+    setResizable (true, true);
+    setResizeLimits (800, 550, 1800, 1000);
+
+    //--- Title ----------------------------------------------------------------
+    titleLabel.setText ("HelpyCords", juce::dontSendNotification);
+    titleLabel.setFont (juce::Font ("Helvetica Neue", 30.0f, juce::Font::bold));
+    titleLabel.setColour (juce::Label::textColourId, Colors::accent);
+    addAndMakeVisible (titleLabel);
+
+    authorLabel.setText ("v2.0  ·  by Agustin", juce::dontSendNotification);
+    authorLabel.setFont (juce::Font (12.0f));
+    authorLabel.setColour (juce::Label::textColourId, Colors::textDim);
+    addAndMakeVisible (authorLabel);
+
+    //--- Instrument -----------------------------------------------------------
+    instrumentLabel.setText ("INSTRUMENT", juce::dontSendNotification);
+    instrumentLabel.setFont (juce::Font (10.0f, juce::Font::bold));
+    instrumentLabel.setColour (juce::Label::textColourId, Colors::textDim);
+    addAndMakeVisible (instrumentLabel);
+
+    for (int i = 0; i < NUM_INSTRUMENTS; ++i)
+        instrumentBox.addItem (INSTRUMENT_PRESETS[i].name, i + 1);
+    instrumentBox.setSelectedItemIndex (0);
+    instrumentBox.addListener (this);
+    addAndMakeVisible (instrumentBox);
+
+    //--- Chord ----------------------------------------------------------------
+    chordLabel.setText ("CHORD TYPE", juce::dontSendNotification);
+    chordLabel.setFont (juce::Font (10.0f, juce::Font::bold));
+    chordLabel.setColour (juce::Label::textColourId, Colors::textDim);
+    addAndMakeVisible (chordLabel);
+
+    for (int i = 0; i < NUM_CHORD_TYPES; ++i)
+        chordBox.addItem (CHORD_TYPE_NAMES[i], i + 1);
+    chordBox.setSelectedItemIndex (0);
+    chordBox.addListener (this);
+    addAndMakeVisible (chordBox);
+
+    //--- Key ------------------------------------------------------------------
+    keyLabel.setText ("KEY", juce::dontSendNotification);
+    keyLabel.setFont (juce::Font (10.0f, juce::Font::bold));
+    keyLabel.setColour (juce::Label::textColourId, Colors::textDim);
+    addAndMakeVisible (keyLabel);
+
+    for (int i = 0; i < 12; ++i)
+        keyBox.addItem (KEY_NAMES[i], i + 1);
+    keyBox.setSelectedItemIndex (0);
+    keyBox.addListener (this);
+    addAndMakeVisible (keyBox);
+
+    //--- AutoCorrect toggle ---------------------------------------------------
+    autoCorrectButton.setButtonText ("AUTO-CORRECT");
+    autoCorrectButton.setToggleState (true, juce::dontSendNotification);
+    autoCorrectButton.addListener (this);
+    addAndMakeVisible (autoCorrectButton);
+
+    autoCorrectLabel.setText ("Snap pressed notes to chord tones", juce::dontSendNotification);
+    autoCorrectLabel.setFont (juce::Font (10.0f));
+    autoCorrectLabel.setColour (juce::Label::textColourId, Colors::textDim);
+    addAndMakeVisible (autoCorrectLabel);
+
+    //--- Sliders --------------------------------------------------------------
+    setupSlider (sustainRow, "SUSTAIN",  0.0,   2.0,  0.01, 1.0);
+    setupSlider (decayRow,   "DECAY",    0.01,  2.0,  0.01, 0.5);
+    setupSlider (reverbRow,  "REVERB",   0.0,   1.0,  0.01, 0.3);
+    setupSlider (filterRow,  "FILTER",   0.0,   1.0,  0.01, 1.0);
+    setupSlider (volumeRow,  "VOLUME",  -30.0,  0.0,  0.5, -6.0);
+    setupSlider (zoomRow,    "ZOOM",     0.5,   2.5,  0.1,  1.0);
+
+    //--- Chord info -----------------------------------------------------------
+    chordInfoLabel.setText ("", juce::dontSendNotification);
+    chordInfoLabel.setFont (juce::Font (12.0f, juce::Font::bold));
+    chordInfoLabel.setColour (juce::Label::textColourId, Colors::accent2);
+    chordInfoLabel.setJustificationType (juce::Justification::centredRight);
+    addAndMakeVisible (chordInfoLabel);
+
+    //--- Piano ----------------------------------------------------------------
+    piano = std::make_unique<PianoKeyboardComponent> (p);
+    addAndMakeVisible (piano.get());
+
+    updateChordInfoLabel();
+    startTimerHz (10);
+}
+
+HelpyCordsEditor::~HelpyCordsEditor()
+{
+    stopTimer();
+}
+
+void HelpyCordsEditor::setupSlider (SliderRow& row, const juce::String& name,
+                                     double lo, double hi, double step, double val)
+{
+    auto& s = row.slider;
+    auto& l = row.label;
+
+    s.setSliderStyle (juce::Slider::LinearHorizontal);
+    s.setTextBoxStyle (juce::Slider::TextBoxRight, false, 50, 16);
+    s.setRange (lo, hi, step);
+    s.setValue (val, juce::dontSendNotification);
+    s.setColour (juce::Slider::thumbColourId,        Colors::accent);
+    s.setColour (juce::Slider::trackColourId,        Colors::accent.withAlpha (0.4f));
+    s.setColour (juce::Slider::backgroundColourId,   Colors::panelBorder);
+    s.setColour (juce::Slider::textBoxTextColourId,  Colors::textDim);
+    s.setColour (juce::Slider::textBoxOutlineColourId, juce::Colour (0));
+    s.addListener (this);
+    addAndMakeVisible (s);
+
+    l.setText (name, juce::dontSendNotification);
+    l.setFont (juce::Font (10.0f, juce::Font::bold));
+    l.setColour (juce::Label::textColourId, Colors::textDim);
+    addAndMakeVisible (l);
+}
+
+//------------------------------------------------------------------------------
+void HelpyCordsEditor::paint (juce::Graphics& g)
+{
+    const int W = getWidth(), H = getHeight();
+
+    // Background
+    g.fillAll (Colors::bg);
+
+    // Header gradient band
+    juce::ColourGradient headerGrad (Colors::accent.withAlpha (0.12f), 0, 0,
+                                     Colors::accent2.withAlpha (0.06f), (float)W, 70,
+                                     false);
+    g.setGradientFill (headerGrad);
+    g.fillRect (0, 0, W, 70);
+
+    g.setColour (Colors::panelBorder);
+    g.drawHorizontalLine (70, 0, (float)W);
+
+    // Controls panel
+    g.setColour (Colors::panel);
+    g.fillRoundedRectangle (8, 78, (float)(W - 16), 200, 6);
+    g.setColour (Colors::panelBorder);
+    g.drawRoundedRectangle (8, 78, (float)(W - 16), 200, 6, 1.0f);
+
+    // Piano panel
+    int pianoY = H - 200;
+    g.setColour (Colors::panel);
+    g.fillRoundedRectangle (8, (float)(pianoY - 8), (float)(W - 16), 208, 6);
+    g.setColour (Colors::panelBorder);
+    g.drawRoundedRectangle (8, (float)(pianoY - 8), (float)(W - 16), 208, 6, 1.0f);
+
+    // Sliders label bar
+    g.setColour (Colors::panelBorder.withAlpha (0.5f));
+    g.fillRect (8, 195, W - 16, 1);
+}
+
+void HelpyCordsEditor::resized()
+{
+    const int W = getWidth(), H = getHeight();
+    const int m = 16;  // margin
+
+    // Header
+    titleLabel.setBounds  (m, 10, 250, 36);
+    authorLabel.setBounds (m, 46, 250, 18);
+
+    // Controls row 1: instrument, chord, key, autocorrect
+    int rowY = 88;
+    int colW = 160, lblH = 14, boxH = 28;
+    int col  = m;
+
+    instrumentLabel.setBounds (col, rowY, colW, lblH);
+    instrumentBox.setBounds   (col, rowY + lblH + 2, colW, boxH);
+    col += colW + m;
+
+    chordLabel.setBounds (col, rowY, colW, lblH);
+    chordBox.setBounds   (col, rowY + lblH + 2, colW, boxH);
+    col += colW + m;
+
+    keyLabel.setBounds (col, rowY, 80, lblH);
+    keyBox.setBounds   (col, rowY + lblH + 2, 80, boxH);
+    col += 96;
+
+    autoCorrectButton.setBounds (col, rowY + lblH + 2, 140, boxH);
+    autoCorrectLabel.setBounds  (col, rowY, 250, lblH);
+    col += 155;
+
+    chordInfoLabel.setBounds (col, rowY, W - col - m, boxH + lblH);
+
+    // Sliders row
+    int sliderY  = rowY + boxH + lblH + 18;
+    int sliderW  = (W - 2 * m - 5 * m) / 6;
+    int sliderLH = 14;
+
+    auto placeSlider = [&](SliderRow& row, int x)
+    {
+        row.label.setBounds  (x, sliderY, sliderW, sliderLH);
+        row.slider.setBounds (x, sliderY + sliderLH, sliderW, 26);
+    };
+
+    int sx = m;
+    placeSlider (sustainRow, sx); sx += sliderW + m;
+    placeSlider (decayRow,   sx); sx += sliderW + m;
+    placeSlider (reverbRow,  sx); sx += sliderW + m;
+    placeSlider (filterRow,  sx); sx += sliderW + m;
+    placeSlider (volumeRow,  sx); sx += sliderW + m;
+    placeSlider (zoomRow,    sx);
+
+    // Piano keyboard
+    int pianoY = H - 200;
+    piano->setBounds (m, pianoY, W - 2 * m, 192);
+}
+
+//------------------------------------------------------------------------------
+void HelpyCordsEditor::updateChordInfoLabel()
+{
+    int keyIdx   = processor.keyParam->getIndex();
+    int chordIdx = processor.chordTypeParam->getIndex();
+    juce::String txt = KEY_NAMES[keyIdx];
+    txt += " " + juce::String (CHORD_TYPE_NAMES[chordIdx]) + "  —  ";
+
+    const int* ivs = CHORD_INTERVALS[chordIdx];
+    for (int i = 0; i < 4; ++i)
+    {
+        int note = (keyIdx + ivs[i]) % 12;
+        txt += KEY_NAMES[note];
+        if (i < 3) txt += " · ";
+    }
+    chordInfoLabel.setText (txt, juce::dontSendNotification);
+}
+
+//------------------------------------------------------------------------------
+void HelpyCordsEditor::timerCallback()
+{
+    // Keep combo boxes in sync if host changes parameters
+    int instIdx  = processor.instrumentParam->getIndex();
+    int chordIdx = processor.chordTypeParam->getIndex();
+    int keyIdx   = processor.keyParam->getIndex();
+
+    if (instrumentBox.getSelectedItemIndex() != instIdx)
+        instrumentBox.setSelectedItemIndex (instIdx, juce::dontSendNotification);
+    if (chordBox.getSelectedItemIndex() != chordIdx)
+        chordBox.setSelectedItemIndex (chordIdx, juce::dontSendNotification);
+    if (keyBox.getSelectedItemIndex() != keyIdx)
+        keyBox.setSelectedItemIndex (keyIdx, juce::dontSendNotification);
+}
+
+//------------------------------------------------------------------------------
+void HelpyCordsEditor::sliderValueChanged (juce::Slider* slider)
+{
+    if      (slider == &sustainRow.slider) *processor.sustainParam = (float) slider->getValue();
+    else if (slider == &decayRow.slider)   *processor.decayParam   = (float) slider->getValue();
+    else if (slider == &reverbRow.slider)  *processor.reverbParam  = (float) slider->getValue();
+    else if (slider == &filterRow.slider)  *processor.filterParam  = (float) slider->getValue();
+    else if (slider == &volumeRow.slider)  *processor.volumeParam  = (float) slider->getValue();
+    else if (slider == &zoomRow.slider)
+    {
+        if (piano) piano->setZoom ((float) slider->getValue());
+    }
+}
+
+void HelpyCordsEditor::comboBoxChanged (juce::ComboBox* comboBox)
+{
+    if (comboBox == &instrumentBox)
+        processor.instrumentParam->setValueNotifyingHost (
+            processor.instrumentParam->convertTo0to1 (instrumentBox.getSelectedItemIndex()));
+    else if (comboBox == &chordBox)
+        processor.chordTypeParam->setValueNotifyingHost (
+            processor.chordTypeParam->convertTo0to1 (chordBox.getSelectedItemIndex()));
+    else if (comboBox == &keyBox)
+        processor.keyParam->setValueNotifyingHost (
+            processor.keyParam->convertTo0to1 (keyBox.getSelectedItemIndex()));
+
+    updateChordInfoLabel();
+}
+
+void HelpyCordsEditor::buttonClicked (juce::Button* button)
+{
+    if (button == &autoCorrectButton)
+        *processor.autoCorrectParam = autoCorrectButton.getToggleState() ? 1.0f : 0.0f;
 }
