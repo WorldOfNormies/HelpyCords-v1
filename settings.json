@@ -1,0 +1,23 @@
+{
+    "cmake.generator": "Visual Studio 17 2022",
+    "cmake.buildDirectory": "${workspaceFolder}/build",
+    "cmake.configureOnOpen": true,
+    "cmake.buildBeforeRun": true,
+    "cmake.defaultVariants": {
+        "buildType": {
+            "default": "release",
+            "choices": {
+                "debug": {
+                    "short": "Debug",
+                    "long": "Debug build",
+                    "buildType": "Debug"
+                },
+                "release": {
+                    "short": "Release",
+                    "long": "Release build",
+                    "buildType": "Release"
+                }
+            }
+        }
+    }
+}
