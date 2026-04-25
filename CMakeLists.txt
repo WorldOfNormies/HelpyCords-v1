@@ -14,9 +14,10 @@ add_subdirectory(JUCE)
 juce_add_plugin(HelpyCords
     PRODUCT_NAME        "HelpyCords"
     COMPANY_NAME        "FamilyRecords"
+    BUNDLE_ID           com.FamilyRecords.HelpyCords
     PLUGIN_MANUFACTURER_CODE "FMRD"
     PLUGIN_CODE         "HCRD"
-    FORMATS             VST3 Standalone
+    FORMATS             VST3
     VST3_CATEGORIES     "Instrument" "Synth"
     IS_SYNTH            TRUE
     NEEDS_MIDI_INPUT    TRUE
