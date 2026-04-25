@@ -26,6 +26,11 @@ juce_add_plugin(HelpyCords
 
 juce_generate_juce_header(HelpyCords)
 
+target_compile_definitions(HelpyCords
+    PRIVATE
+        JUCE_IGNORE_VST3_MISMATCHED_PARAMETER_ID_WARNING=1
+)
+
 # Source files
 target_sources(HelpyCords PRIVATE
     HelpyCordsPlugin.cpp
