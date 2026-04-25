@@ -29,6 +29,7 @@ private:
     float zoom         = 1.0f;
     int   scrollOffset = 0;        // pixel scroll (horizontal)
     int   startNote    = 36;       // C2
+    int   octaveOffset = 2;        // Default to C2
 
     // Which notes are currently held by mouse
     bool mouseHeld[128] = {};
@@ -46,6 +47,7 @@ private:
     static const int WHITE_KEY_NOTES[7];
     static const int BLACK_KEY_NOTES[5];
     static const float BLACK_KEY_OFFSETS[5];
+    static const char* NOTE_NAMES[12];
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoKeyboardComponent)
 };
@@ -90,7 +92,8 @@ private:
         juce::Slider slider;
         juce::Label  label;
     };
-    SliderRow sustainRow, decayRow, reverbRow, filterRow, volumeRow, zoomRow;
+    SliderRow sustainRow, decayRow, reverbRow, filterRow, volumeRow;
+    SliderRow pitchRow, speedRow, toneRow, delayRow, compressionRow;
 
     void setupSlider (SliderRow& row, const juce::String& name,
                       double lo, double hi, double step, double val);

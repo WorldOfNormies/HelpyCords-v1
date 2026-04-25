@@ -13,8 +13,8 @@ add_subdirectory(JUCE)
 # -----------------------------------------------------------------------
 juce_add_plugin(HelpyCords
     PRODUCT_NAME        "HelpyCords"
-    COMPANY_NAME        "WorldOfNormies"
-    PLUGIN_MANUFACTURER_CODE "WOFN"
+    COMPANY_NAME        "FamilyRecords"
+    PLUGIN_MANUFACTURER_CODE "FMRD"
     PLUGIN_CODE         "HCRD"
     FORMATS             VST3 Standalone
     VST3_CATEGORIES     "Instrument" "Synth"
@@ -23,6 +23,8 @@ juce_add_plugin(HelpyCords
     NEEDS_MIDI_OUTPUT   TRUE
     COPY_PLUGIN_AFTER_BUILD TRUE
 )
+
+juce_generate_juce_header(HelpyCords)
 
 # Source files
 target_sources(HelpyCords PRIVATE
