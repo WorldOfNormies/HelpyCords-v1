@@ -21,7 +21,7 @@ struct InstrumentPreset
     float harmonicRichness; // extra overtone blend 0-1
 };
 
-static constexpr int NUM_INSTRUMENTS = 12;
+static constexpr int NUM_INSTRUMENTS = 13;
 
 static const InstrumentPreset INSTRUMENT_PRESETS[NUM_INSTRUMENTS] = {
     // name                sine   tri    saw    att    dec   sus   rel    fCut  fRes  harm
@@ -36,7 +36,8 @@ static const InstrumentPreset INSTRUMENT_PRESETS[NUM_INSTRUMENTS] = {
     {"Saxophone",         {0.65f,0.25f,0.1f}, 0.060f, 0.35f,0.60f, 0.90f, 0.80f,0.1f, 0.3f},
     {"Flute",             {0.90f,0.10f,0.0f}, 0.040f, 0.3f, 0.40f, 0.95f, 0.70f,0.0f, 0.05f},
     {"Bass",              {0.3f, 0.5f, 0.2f}, 0.020f, 0.6f, 0.50f, 0.75f, 0.90f,0.25f,0.2f},
-    {"Harpsichord",       {0.0f, 1.0f, 0.0f}, 0.001f, 0.8f, 0.04f, 0.3f,  1.0f, 0.0f, 0.6f}
+    {"Harpsichord",       {0.0f, 1.0f, 0.0f}, 0.001f, 0.8f, 0.04f, 0.3f,  1.0f, 0.0f, 0.6f},
+    {"Harp",              {0.8f, 0.2f, 0.0f}, 0.010f, 0.7f, 0.05f, 1.5f,  0.9f, 0.0f, 0.2f}
 };
 
 //==============================================================================
@@ -109,6 +110,11 @@ public:
     juce::AudioParameterFloat*  reverbParam      = nullptr;
     juce::AudioParameterFloat*  volumeParam      = nullptr;
     juce::AudioParameterFloat*  filterParam      = nullptr;
+    juce::AudioParameterFloat*  pitchParam       = nullptr;
+    juce::AudioParameterFloat*  speedParam       = nullptr;
+    juce::AudioParameterFloat*  toneParam        = nullptr;
+    juce::AudioParameterFloat*  delayParam       = nullptr;
+    juce::AudioParameterFloat*  compressionParam = nullptr;
 
     //==========================================================================
     // Voice data (read from editor for key-highlight display)
@@ -149,9 +155,14 @@ private:
     int currentChordType               = 0;
 
     // Simple reverb state
-    static constexpr int REVERB_SIZE = 8192;
+    static constexpr int REVERB_SIZE = 16384;
     std::array<float, REVERB_SIZE> reverbBufferL{}, reverbBufferR{};
     int reverbWritePos = 0;
+
+    // Simple delay state
+    static constexpr int DELAY_SIZE = 44100;
+    std::array<float, DELAY_SIZE> delayBufferL{}, delayBufferR{};
+    int delayWritePos = 0;
 
     void  updateChordAndKey();
     float noteToFrequency (int midiNote) const;
