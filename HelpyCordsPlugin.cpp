@@ -104,6 +104,21 @@ bool HelpyCordsPlugin::isNoteInChord (int midiNote) const
     return false;
 }
 
+std::pair<int, int> HelpyCordsPlugin::getInstrumentRange() const
+{
+    int low = 0, high = 127;
+    juce::String instName = currentInstrument.name;
+    if (instName.contains ("Guitar"))    { low = 40; high = 88; }
+    else if (instName.contains ("Violin")) { low = 55; high = 103; }
+    else if (instName.contains ("Saxophone")) { low = 49; high = 82; }
+    else if (instName.contains ("Trumpet")) { low = 52; high = 82; }
+    else if (instName.contains ("Flute"))  { low = 60; high = 96; }
+    else if (instName.contains ("Bass"))   { low = 28; high = 67; }
+    else if (instName.contains ("Cello"))  { low = 36; high = 76; }
+    else if (instName.contains ("Harp"))   { low = 24; high = 103; }
+    return { low, high };
+}
+
 void HelpyCordsPlugin::updateChordAndKey()
 {
     currentChordType = chordTypeParam->getIndex();

@@ -93,18 +93,8 @@ void PianoKeyboardComponent::paint (juce::Graphics& g)
         bool inChord = processor.noteInCurrentChord[midi];
 
         // Basic instrument ranges
-        int low = 0, high = 127;
-        auto instName = juce::String(processor.instrumentParam->getText(processor.instrumentParam->getIndex(), 100));
-        if (instName.contains("Guitar")) { low = 40; high = 88; }
-        else if (instName.contains("Violin")) { low = 55; high = 103; }
-        else if (instName.contains("Saxophone")) { low = 49; high = 82; }
-        else if (instName.contains("Trumpet")) { low = 52; high = 82; }
-        else if (instName.contains("Flute")) { low = 60; high = 96; }
-        else if (instName.contains("Bass")) { low = 28; high = 67; }
-        else if (instName.contains("Cello")) { low = 36; high = 76; }
-        else if (instName.contains("Harp")) { low = 24; high = 103; }
-
-        bool outOfRange = (midi < low || midi > high);
+        auto range = processor.getInstrumentRange();
+        bool outOfRange = (midi < range.first || midi > range.second);
 
         if (mouseHeld[midi])
         {
@@ -149,18 +139,9 @@ void PianoKeyboardComponent::paint (juce::Graphics& g)
             juce::Colour col = Colors::keyBlack;
             bool inChord = processor.noteInCurrentChord[midi];
 
-            // Reuse same range logic (simplification for brevity, ideally shared)
-            int low = 0, high = 127;
-            auto instName = juce::String(processor.instrumentParam->getText(processor.instrumentParam->getIndex(), 100));
-            if (instName.contains("Guitar")) { low = 40; high = 88; }
-            else if (instName.contains("Violin")) { low = 55; high = 103; }
-            else if (instName.contains("Saxophone")) { low = 49; high = 82; }
-            else if (instName.contains("Trumpet")) { low = 52; high = 82; }
-            else if (instName.contains("Flute")) { low = 60; high = 96; }
-            else if (instName.contains("Bass")) { low = 28; high = 67; }
-            else if (instName.contains("Cello")) { low = 36; high = 76; }
-            else if (instName.contains("Harp")) { low = 24; high = 103; }
-            bool outOfRange = (midi < low || midi > high);
+            // Reuse same range logic
+            auto range = processor.getInstrumentRange();
+            bool outOfRange = (midi < range.first || midi > range.second);
 
             if (mouseHeld[midi])
             {

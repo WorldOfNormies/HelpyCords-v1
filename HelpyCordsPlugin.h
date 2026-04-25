@@ -143,6 +143,7 @@ public:
     // Helpers also used by editor
     int  getCorrectedNote (int inputNote) const;
     bool isNoteInChord    (int midiNote)  const;
+    std::pair<int, int> getInstrumentRange() const;
 
 private:
     juce::MidiMessageCollector midiCollector;

@@ -24,6 +24,8 @@ juce_add_plugin(HelpyCords
     COPY_PLUGIN_AFTER_BUILD TRUE
 )
 
+juce_generate_juce_header(HelpyCords)
+
 # Source files
 target_sources(HelpyCords PRIVATE
     HelpyCordsPlugin.cpp
